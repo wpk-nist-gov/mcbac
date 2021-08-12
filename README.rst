@@ -26,7 +26,7 @@ mCBAC implementation
 Features
 --------
 
-See example <examples/usage.ipynb>`_ for example usage
+See `example <examples/usage.ipynb>`_ for example usage
 
 Installation
 ------------
