@@ -397,7 +397,3 @@ class CifHelper:
         d = json.loads(p.as_json())
 
         return cls.from_dict(d, **kws)
-
-
-def from_dict(path):
-    """ """
