@@ -5,7 +5,7 @@ import pandas as pd
 import xarray as xr
 
 from .cached_decorators import gcached
-from .internaldata import get_radii
+from .internaldata import get_database_0, get_database_1, get_database_2, get_radii
 
 
 # Decorators for class interaction
@@ -365,6 +365,71 @@ class CifHelper:
             _sum_names, col="nebr_name_2nd"
         )
         return pd.concat({"nebr_0": df_0, "nebr_1": df_1, "nebr_2": df_2}, axis=1)
+
+    def nebr_stack_charge(
+        self,
+        rcut_fac=1.25,
+        db_0=None,
+        db_1=None,
+        db_2=None,
+        val_total="val_total",
+        val_shift="val_shift",
+        val_zero="val_zero",
+        nebr_stack=None,
+        fill_missing="offset",
+    ):
+        """
+        merge charge values into `self.nebr_stack()`
+
+        This finds the highest order value
+
+        Paramters
+        ---------
+        db_0, db_1, db_2 : pandas.DataFrame
+            db_i is the  i-th neighbor database.  It should have colums `[nebr_0, ..., nebr_i, val_i]`
+        fill_missing :
+        """
+
+        if nebr_stack is None:
+            nebr_stack = self.nebr_stack(rcut_fac=rcut_fac)
+
+        if db_0 is None:
+            db_0 = get_database_0()
+        if db_1 is None:
+            db_1 = get_database_1()
+        if db_2 is None:
+            db_2 = get_database_2()
+
+        out = (
+            nebr_stack.merge(db_0, how="left")
+            .merge(db_1, how="left")
+            .merge(db_2, how="left")
+        )
+
+        # pick out the highest order non nan value
+        out.loc[:, val_total] = out[["val_0", "val_1", "val_2"]].fillna(
+            method="ffill", axis=1
+        )["val_2"]
+
+        if fill_missing == "offset":
+            # fill with charge to get zero total charge
+            # sum of current charges / number of missing charges
+            n_missing = out[val_total].isnull().sum()
+            if n_missing > 0:
+                value = -out[val_total].sum() / out[val_total].isnull().sum()
+                out.loc[:, val_total] = out[val_total].fillna(value=value)
+
+        if val_shift is not None or val_zero is not None:
+            sum_abs = np.abs(out["val_total"]).sum()
+            sum_real = out["val_total"].sum()
+            fac = sum_real / sum_abs
+
+            if val_shift is not None:
+                out.loc[:, val_shift] = np.abs(out[val_total]) * fac
+            if val_zero is not None:
+                out.loc[:, val_zero] = out["val_total"] - np.abs(out[val_total]) * fac
+
+        return out
 
     @classmethod
     def from_dict(cls, d, **kws):
