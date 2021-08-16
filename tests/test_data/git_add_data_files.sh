@@ -8,6 +8,6 @@ ls -1 *.cif | gawk '$0!~/FINAL_/' | while read cif; do
     zero=Final_Charge_Zeroed_${cif}.txt
     shift=Shift_Charge_${cif}.txt
     final=FINAL_${cif}
-    git add $cif $nebr $charge $zero $shift $final
+    git add $cif $nebrs $charge $zero $shift $final
 
 done

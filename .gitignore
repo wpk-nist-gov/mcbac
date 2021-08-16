@@ -106,3 +106,13 @@ ENV/
 pyrightconfig.json
 .autoenv.zsh
 .autoenv_leave.zsh
+
+
+# Local settings
+/origsrc/
+/tests/test_data/*.checkfloat.txt
+/awk_stuff_orig/
+/tests/test_data/*.cif_ratio.txt
+/tests/test_data/float.list
+/tests/test_data/zero_check.txt
+/.editorconfig
