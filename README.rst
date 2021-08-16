@@ -32,14 +32,20 @@ Installation
 ------------
 clone the repo.  To make a conda env with what you'll need, do the following (default env name is `mcbac-env`
 
-.. code:: bash
+.. code-block:: console
    conda env create -n {optional env name} -f environment.yml
 
 Then, to install the code do
 
-.. code:: bash
+.. code-block:: console
    conda activate {env name}
    pip install -e . --no-deps
+
+
+Optionally, to install directly from the repo via pip, do the following:
+
+.. code-block:: console
+   pip install git+https://github.com/wpk-nist-gov/mcbac.git@develop
 
 
 
