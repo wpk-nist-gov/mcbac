@@ -26,7 +26,8 @@ mCBAC implementation
 Features
 --------
 
-Python version of m-CBAC calculation (see JiLink_)
+Python version of m-CBAC calculation (see `m-CBAC paper`_)
+
 
 See `example <examples/usage.ipynb>`_ for example usage
 
@@ -84,4 +85,4 @@ This package was created with Cookiecutter_ and the `wpk-nist-gov/cookiecutter-p
 .. _Cookiecutter: https://github.com/audreyr/cookiecutter
 .. _`wpk-nist-gov/cookiecutter-pypackage`: https://github.com/wpk-nist-gov/cookiecutter-pypackage
 .. _`audreyr/cookiecutter-pypackage`: https://github.com/audreyr/cookiecutter-pypackage
-.. _JiLink: https://pubs.acs.org/doi/abs/10.1021/acs.jpcc.0c01524
+.. _`m-CBAC paper`: https://pubs.acs.org/doi/abs/10.1021/acs.jpcc.0c01524
