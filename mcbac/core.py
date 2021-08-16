@@ -2,10 +2,11 @@ import itertools
 
 import numpy as np
 import pandas as pd
-import xarray as xr
 
 from .cached_decorators import gcached
 from .internaldata import get_database_0, get_database_1, get_database_2, get_radii
+
+# import xarray as xr
 
 
 # Decorators for class interaction
@@ -94,20 +95,32 @@ class CifHelper:
     alpha, beta, gamma : float
         value from data['_cell_angle_alpha], etc
     label : array of strings
-        value from data['_atom_site_label]
+        value of data['_atom_site_label']
+    type_sybol : array of strings
+        value from data['_atom_site_type_symbol']
+        or data['_atom_site_label] if type_symbol not available.
     frac_x, frac_y, frac_z, charge : array of floats
         value from data['_atom_site_fract_x'], etc
 
     """
 
-    def __init__(self, data, radii_dict=None):
+    def __init__(self, data, radii_dict=None, name=None):
         if radii_dict is None:
             radii_dict = get_radii()
         self._radii_dict = radii_dict
         self.data = data
+        self.name = name
 
     def __getitem__(self, index):
         return self.data[index]
+
+    @property
+    def type_symbol(self):
+        key = "_atom_site_type_symbol"
+        if key in self.data:
+            return np.array(self.data[key])
+        else:
+            return self.label
 
     @property
     def alpha_rad(self):
@@ -142,7 +155,7 @@ class CifHelper:
 
     @gcached()
     def atom_radii(self):
-        return np.array([self._radii_dict[k] for k in self.label])
+        return np.array([self._radii_dict[k] for k in self.type_symbol])
 
     @property
     def frac_all(self):
@@ -172,6 +185,10 @@ class CifHelper:
     def coords(self):
         return np.dot(self.frac_all, self.transform_matrix.T)
 
+    @property
+    def offsets(self):
+        return np.array(list(itertools.product(*(range(-1, 2),) * 3)))
+
     def coords_replicated(self, stack=True):
         """
         create coordinates for replicate.
@@ -183,7 +200,7 @@ class CifHelper:
             If `True`, stack all replicates into first dimension ans shape = (27 * n, 3)
         """
 
-        offsets = np.array(list(itertools.product(*(range(-1, 2),) * 3)))
+        offsets = self.offsets
         out = np.dot(
             self.frac_all[None, :, :] + offsets[:, None, :], self.transform_matrix.T
         )
@@ -285,31 +302,58 @@ class CifHelper:
             distances = distances.reshape(len(self), 27, len(self))
         return distances
 
-    @property
-    def distance_dataarray(self) -> xr.DataArray:
+    # @property
+    # def distance_dataarray(self) -> xr.DataArray:
 
-        radii = self.atom_radii
-        label = self.label
+    #     radii = self.atom_radii
+    #     type_symbol = self.type_symbol
 
-        da = xr.DataArray(
-            self.distance_matrix(stack=False),
-            dims=["cntr", "repl", "nebr"],
-            coords={
-                "cntr_radii": ("cntr", radii),
-                "nebr_radii": ("nebr", radii),
-                "cntr_name": ("cntr", label),
-                "nebr_name": ("nebr", label),
-            },
-            name="distance",
-        )
-        return da
+    #     da = xr.DataArray(
+    #         self.distance_matrix(stack=False),
+    #         dims=["cntr", "repl", "nebr"],
+    #         coords={
+    #             "cntr_radii": ("cntr", radii),
+    #             "nebr_radii": ("nebr", radii),
+    #             "cntr_name": ("cntr", type_symbol),
+    #             "nebr_name": ("nebr", type_symbol),
+    #         },
+    #         name="distance",
+    #     )
+    #     return da
+
+    # @gcached()
+    # def distance_frame(self) -> pd.DataFrame:
+    #     return self.distance_dataarray.to_dataframe().reset_index()
 
     @gcached()
     def distance_frame(self) -> pd.DataFrame:
-        return self.distance_dataarray.to_dataframe()
+        cntr, repl, nebr = np.mgrid[0 : len(self), 0:27, 0 : len(self)].reshape(3, -1)
+
+        out = pd.DataFrame(
+            {
+                "cntr": cntr,
+                "repl": repl,
+                "nebr": nebr,
+                "cntr_radii": self.atom_radii[cntr],
+                "nebr_radii": self.atom_radii[nebr],
+                "cntr_name": self.type_symbol[cntr],
+                "nebr_name": self.type_symbol[nebr],
+                "distance": self.distance_matrix(stack=True).flatten(),
+            }
+        )
+
+        # add in a column for central_image
+        # center_mapping = (
+        #     pd.DataFrame({'central_image': (self.offsets == 0).all(-1)})
+        #     .assign(repl=lambda x: np.arange(len(x)))
+        # )
+
+        # out = out.merge(center_mapping)
+
+        return out
 
     @gcached(prop=False)
-    def nebr_frame(self, rcut_fac=1.25):
+    def nebr_frame(self, rcut_fac=1.25, nnebr=8):
         """neighbor frame"""
         df = self.distance_frame
 
@@ -319,19 +363,22 @@ class CifHelper:
             ).query("distance < rcut")
 
         df = (
-            df.reset_index()
-            .sort_values(["cntr", "distance"])
+            df.sort_values(["cntr", "distance"])
             # assign ranks
             .groupby("cntr", as_index=False)
             .apply(lambda x: x.assign(rank=lambda x: np.arange(len(x))))
             .reset_index(drop=True)
         )
+
+        if nnebr is not None:
+            df = df.loc[df["rank"] < nnebr]
+
         return df
 
     @gcached(prop=False)
-    def nebr_nebr_frame(self, rcut_fac=1.25):
+    def nebr_nebr_frame(self, rcut_fac=1.25, nnebr=8):
         """neighbors of neighbors"""
-        nebr_frame = self.nebr_frame(rcut_fac=rcut_fac)
+        nebr_frame = self.nebr_frame(rcut_fac=rcut_fac, nnebr=nnebr)
         df = nebr_frame.query("rank > 0")
         out = pd.merge(
             df, df, left_on="nebr", right_on="cntr", how="left", suffixes=["", "_2nd"]
@@ -339,10 +386,10 @@ class CifHelper:
         return out
 
     @gcached(prop=False)
-    def nebr_stack(self, rcut_fac=1.25):
+    def nebr_stack(self, rcut_fac=1.25, nnebr=8):
         """list of neighbors to use as keys in database"""
-        nebr_frame = self.nebr_frame(rcut_fac=rcut_fac)
-        nebr_nebr_frame = self.nebr_nebr_frame(rcut_fac=rcut_fac)
+        nebr_frame = self.nebr_frame(rcut_fac=rcut_fac, nnebr=nnebr)
+        nebr_nebr_frame = self.nebr_nebr_frame(rcut_fac=rcut_fac, nnebr=nnebr)
 
         def _sum_names(df, col):
             return (
@@ -351,9 +398,12 @@ class CifHelper:
 
         # 0th
         df_0 = pd.DataFrame(
-            {"cntr": np.arange(len(self)), "nebr_0": self.label}
+            {"cntr": np.arange(len(self)), "nebr_0": self.type_symbol}
         ).set_index("cntr")["nebr_0"]
-        df_1 = nebr_frame.query("cntr != nebr").pipe(_sum_names, col="nebr_name")
+        # instead of using 'cntr != nebr', just use rank > 0
+        # if use 'cntr != nebr', should use 'central_image'
+        # i.e., '(cntr != nebr and central_image) or (not central_image)
+        df_1 = nebr_frame.query("rank > 0").pipe(_sum_names, col="nebr_name")
 
         # TODO : consider changing this?
         # this includes self and double counts
@@ -369,6 +419,7 @@ class CifHelper:
     def nebr_stack_charge(
         self,
         rcut_fac=1.25,
+        nnebr=8,
         db_0=None,
         db_1=None,
         db_2=None,
@@ -391,7 +442,7 @@ class CifHelper:
         """
 
         if nebr_stack is None:
-            nebr_stack = self.nebr_stack(rcut_fac=rcut_fac)
+            nebr_stack = self.nebr_stack(rcut_fac=rcut_fac, nnebr=nnebr)
 
         if db_0 is None:
             db_0 = get_database_0()
@@ -432,25 +483,39 @@ class CifHelper:
         return out
 
     @classmethod
-    def from_dict(cls, d, **kws):
+    def from_dict(cls, d, sole_block=True, **kws):
         """
-        for dict of multiple cif things {lable : {cif stuff}, ....}
+        for dict of multiple cif things {type_symbol : {cif stuff}, ....}
         create a dict of CifHelpers
+
+        Parameters
+        ----------
+        d : dict
+            dict of form {name : cif_data, name1: cif_data1, ....}
+        sole_block : bool, default=True
+            If True, then just return a single object.
         """
-        return {k: cls(data, **kws) for k, data in d.items()}
+
+        out = {k: cls(data, name=k, **kws) for k, data in d.items()}
+        if sole_block:
+            if len(out) > 1:
+                raise ValueError(f"can't return sole_block with lenght {len(out)}")
+            out = list(out.values())[0]
+
+        return out
 
     @classmethod
-    def from_pymatgen(cls, path, parser_kws=None, **kws):
+    def from_pymatgen(cls, path, parser_kws=None, sole_block=True, **kws):
         from pymatgen.io.cif import CifParser
 
         if parser_kws is None:
             parser_kws = {}
         p = CifParser(path, **parser_kws)
 
-        return cls.from_dict(p.as_dict(), **kws)
+        return cls.from_dict(p.as_dict(), sole_block=sole_block, **kws)
 
     @classmethod
-    def from_gemmi(cls, path, json_kws=None, **kws):
+    def from_gemmi(cls, path, json_kws=None, sole_block=True, **kws):
         import json
 
         from gemmi import cif
@@ -461,4 +526,4 @@ class CifHelper:
 
         d = json.loads(p.as_json())
 
-        return cls.from_dict(d, **kws)
+        return cls.from_dict(d, sole_block=sole_block, **kws)

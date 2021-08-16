@@ -9,7 +9,6 @@ dependencies:
   - numpy
   - scipy
   - pandas
-  - xarray
   - pymatgen
   - gemmi
   # cli
