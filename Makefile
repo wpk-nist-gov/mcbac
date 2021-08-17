@@ -142,6 +142,8 @@ docs: ## generate Sphinx HTML documentation, including API docs
 	rm -fr docs/generated
 	$(MAKE) -C docs clean
 	$(MAKE) -C docs html
+
+docs-view:
 	$(BROWSER) docs/_build/html/index.html
 
 servedocs: docs ## compile the docs watching for changes

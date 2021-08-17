@@ -116,3 +116,5 @@ pyrightconfig.json
 /tests/test_data/float.list
 /tests/test_data/zero_check.txt
 /.editorconfig
+/docs/generated/
+/docs/*.bak

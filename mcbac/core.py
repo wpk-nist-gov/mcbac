@@ -15,6 +15,10 @@ def _prop_wrapper(key):
     def new_prop(self):
         return self.data[key]
 
+    new_prop.__doc__ = f"""
+    returns `self.data[{key}]
+    """
+
     return new_prop
 
 
@@ -23,6 +27,9 @@ def _prop_wrapper_float(key):
     def new_prop(self):
         return float(self.data[key])
 
+    new_prop.__doc__ = f"""
+    returns `float(self.data[{key}])`
+    """
     return new_prop
 
 
@@ -30,6 +37,10 @@ def _prop_wrapper_array(key, dtype=None):
     @property
     def new_prop(self):
         return np.array(self.data[key], dtype=dtype)
+
+    new_prop.__doc__ = f"""
+    returns `np.array(self.data[{key}], dtype={dtype})`
+    """
 
     return new_prop
 
@@ -81,27 +92,15 @@ class CifHelper:
     """
     Helper class to work with cif file
 
-    Paramters
-    ---------
+    Parameters
+    ----------
     data : dict
         dictionary from cif file
     radii_dict : dict, optional
         mapping from elements -> radii
-
-    Attributes
-    ----------
-    a, b, c : float
-        values from data['_cell_length_a'] etc
-    alpha, beta, gamma : float
-        value from data['_cell_angle_alpha], etc
-    label : array of strings
-        value of data['_atom_site_label']
-    type_sybol : array of strings
-        value from data['_atom_site_type_symbol']
-        or data['_atom_site_label] if type_symbol not available.
-    frac_x, frac_y, frac_z, charge : array of floats
-        value from data['_atom_site_fract_x'], etc
-
+        Defaults to mcbac.internaldata.get_radii()
+    name : str, optional
+        optional name for object
     """
 
     def __init__(self, data, radii_dict=None, name=None):
@@ -116,6 +115,9 @@ class CifHelper:
 
     @property
     def type_symbol(self):
+        """
+        values of self.data["_atom_site_type_symbol"]
+        """
         key = "_atom_site_type_symbol"
         if key in self.data:
             return np.array(self.data[key])
@@ -124,18 +126,22 @@ class CifHelper:
 
     @property
     def alpha_rad(self):
+        """alpha angle in radians"""
         return np.deg2rad(self.alpha)
 
     @property
     def beta_rad(self):
+        """beta angle in radians"""
         return np.deg2rad(self.beta)
 
     @property
     def gamma_rad(self):
+        """gamma angle in radians"""
         return np.deg2rad(self.gamma)
 
     @property
     def volume(self):
+        """cell volume"""
         cos_alpha, cos_beta, cos_gamma = [
             np.cos(x) for x in (self.alpha_rad, self.beta_rad, self.gamma_rad)
         ]
@@ -155,10 +161,12 @@ class CifHelper:
 
     @gcached()
     def atom_radii(self):
+        """array of radii for each particle"""
         return np.array([self._radii_dict[k] for k in self.type_symbol])
 
     @property
     def frac_all(self):
+        """fractional coordinates, shape=(len(self), 3)"""
         return np.stack((self.frac_x, self.frac_y, self.frac_z), axis=-1)
 
     @property
@@ -183,6 +191,7 @@ class CifHelper:
 
     @property
     def coords(self):
+        """cartisian coordinates"""
         return np.dot(self.frac_all, self.transform_matrix.T)
 
     @property
@@ -277,7 +286,7 @@ class CifHelper:
         """
         compute distance matrix
 
-        Paramters
+        Parameters
         ----------
         stack : bool, default = True
             Whether to stack or not stack the replicate dimension
@@ -327,6 +336,19 @@ class CifHelper:
 
     @gcached()
     def distance_frame(self) -> pd.DataFrame:
+        """
+        DataFrame of distances
+
+        Columns are
+
+        * "cntr" : index of center
+        * "nebr" : index of neighbor
+        * "cntr_radii", "nebr_radii" : radii of center/neighbor
+        * "cntr_name", "nebr_name" : type_symbol of center/neighbor
+        * "distance" : distance between center and neighbor
+
+
+        """
         cntr, repl, nebr = np.mgrid[0 : len(self), 0:27, 0 : len(self)].reshape(3, -1)
 
         out = pd.DataFrame(
@@ -354,7 +376,29 @@ class CifHelper:
 
     @gcached(prop=False)
     def nebr_frame(self, rcut_fac=1.25, nnebr=8):
-        """neighbor frame"""
+        """DataFrame of nearest neighbors
+
+        Parameters
+        ----------
+        rcut_fac : float, default=1.25
+            If not `None`, only consider distances with
+            `distance < (cntr_radii + nebr_radii) * rcut_fac`
+        nnebr : int, default=8
+            If not `None`, only consider first `nnebr` nearest neighbors.
+            Note that this includes the distance from a particle to itself
+            (i.e., each particle 'i' will have a neighbor 'i' with distance 0)
+
+        Returns
+        -------
+        nebr_frame : DataFrame
+            `self.distance_frame` with optional distance querying depending on passed parameters
+            sorted by distance with additional column `rank` with index of neighbor
+            rank by distance value.
+
+        See Also
+        --------
+        CifHelper.distance_frame
+        """
         df = self.distance_frame
 
         if rcut_fac is not None:
@@ -377,7 +421,25 @@ class CifHelper:
 
     @gcached(prop=False)
     def nebr_nebr_frame(self, rcut_fac=1.25, nnebr=8):
-        """neighbors of neighbors"""
+        """neighbors of neighbors
+
+        Parameters
+        ----------
+        rcut_fac : float, default=1.25
+            If not `None`, only consider distances with
+            `distance < (cntr_radii + nebr_radii) * rcut_fac`
+        nnebr : int, default=8
+            If not `None`, only consider first `nnebr` nearest neighbors.
+            Note that this includes the distance from a particle to itself
+            (i.e., each particle 'i' will have a neighbor 'i' with distance 0)
+
+
+        Returns
+        -------
+        nebr_nebr_frame : pandas.DataFrame
+            `self.nebr_frame` with with merged nebr of nebr data
+            (denoted by suffix '_2nd')
+        """
         nebr_frame = self.nebr_frame(rcut_fac=rcut_fac, nnebr=nnebr)
         df = nebr_frame.query("rank > 0")
         out = pd.merge(
@@ -434,11 +496,12 @@ class CifHelper:
 
         This finds the highest order value
 
-        Paramters
-        ---------
+        Parameters
+        ----------
         db_0, db_1, db_2 : pandas.DataFrame
             db_i is the  i-th neighbor database.  It should have colums `[nebr_0, ..., nebr_i, val_i]`
-        fill_missing :
+        fill_missing : {"offset"}
+            fill in missing values to offset the other charges
         """
 
         if nebr_stack is None:
@@ -485,7 +548,7 @@ class CifHelper:
     @classmethod
     def from_dict(cls, d, sole_block=True, **kws):
         """
-        for dict of multiple cif things {type_symbol : {cif stuff}, ....}
+        for dict of multiple cif things {name0 : {cif stuff}, ....}
         create a dict of CifHelpers
 
         Parameters
@@ -494,6 +557,14 @@ class CifHelper:
             dict of form {name : cif_data, name1: cif_data1, ....}
         sole_block : bool, default=True
             If True, then just return a single object.
+
+        Returns
+        -------
+        output : CifHelper or dict of CifHelper objects
+
+        Notes
+        -----
+        The name of each object is set to the key in the input dictionary
         """
 
         out = {k: cls(data, name=k, **kws) for k, data in d.items()}
@@ -506,6 +577,29 @@ class CifHelper:
 
     @classmethod
     def from_pymatgen(cls, path, parser_kws=None, sole_block=True, **kws):
+        """
+        create object by reading path using pymatgen
+
+        Parameters
+        ----------
+        path : str or pathlib.Path
+            Path of file to read in
+        parser_kws : dict, optional
+            optional arguments to pass to the parser
+        sole_block : bool, default=True
+            If `True`, return a single instance
+        kws : dict
+            additional arguments to `cls.from_dict`
+
+        Returns
+        -------
+        output : CifHelper or dict of CifHelper
+
+
+        See Also
+        --------
+        pymatgen.io.cif.CifParser, CifHelper.from_dict
+        """
         from pymatgen.io.cif import CifParser
 
         if parser_kws is None:
@@ -516,6 +610,30 @@ class CifHelper:
 
     @classmethod
     def from_gemmi(cls, path, json_kws=None, sole_block=True, **kws):
+        """
+        create object by reading path using gemmi
+
+        Parameters
+        ----------
+        path : str or pathlib.Path
+            Path of file to read in
+        json_kws : dict, optional
+            optional arguments to pass to `gemmi.cif.Document.as_json`
+        sole_block : bool, default=True
+            If `True`, return a single instance
+        kws : dict
+            additional arguments to `cls.from_dict`
+
+        Returns
+        -------
+        output : CifHelper or dict of CifHelper
+
+
+        See Also
+        --------
+        gemmi.cif.read_file, gemmi.cif.Document.as_json
+        CifHelper.from_dict, CifHelper.from_pymatgen
+        """
         import json
 
         from gemmi import cif
